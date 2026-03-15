@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ISO source documents — licensed content, keep off repo
+data/iso-27001/*.pdf
+data/iso-27002/*.pdf
+data/iso-42001/*.pdf
+
+# Wrangler
+.wrangler/
+
+# OS
+.DS_Store
+Thumbs.db
