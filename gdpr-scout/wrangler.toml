@@ -1,0 +1,19 @@
+name = "gdpr-scout"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".vercel/output/static"
+
+# ── Cloudflare D1 Database ──────────────────────────────────────────────────
+[[d1_databases]]
+binding = "DB"
+database_name = "gdpr-scout-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# ── Cloudflare Vectorize (GDPR document embeddings) ─────────────────────────
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "gdpr-documents"
+
+# ── Environment variables (secrets set via Cloudflare dashboard) ─────────────
+# PERPLEXITY_API_KEY  — set in Cloudflare Pages > Settings > Environment Variables
+# AUTH_SECRET         — JWT signing secret
