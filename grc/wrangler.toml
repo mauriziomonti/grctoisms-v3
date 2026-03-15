@@ -6,7 +6,7 @@ pages_build_output_dir = ".next/static"
 [[d1_databases]]
 binding = "DB"
 database_name = "grc-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "e2f0a2d4-9bfe-4d9d-844d-867f3464b0f8"
 
 # ── Cloudflare Vectorize (ISO document embeddings) ──────────────────────────
 [[vectorize]]
