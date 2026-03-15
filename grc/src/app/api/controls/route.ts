@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+export const runtime = 'edge'
+
 /**
  * GET /api/controls?standard=27001&clause=5.1
  * Returns controls from the structured ISO data layer.
