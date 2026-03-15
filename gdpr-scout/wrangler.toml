@@ -7,7 +7,7 @@ pages_build_output_dir = ".vercel/output/static"
 [[d1_databases]]
 binding = "DB"
 database_name = "gdpr-scout-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "6977a1a1-f44f-40ec-b5d5-886c7387c1e4"
 
 # ── Cloudflare Vectorize (GDPR document embeddings) ─────────────────────────
 [[vectorize]]
