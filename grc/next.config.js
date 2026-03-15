@@ -6,9 +6,7 @@ const nextConfig = {
   // Base path if serving under /grc subdirectory
   // basePath: '/grc',
 
-  experimental: {
-    serverComponentsExternalPackages: [],
-  },
+  serverExternalPackages: [],
 }
 
 module.exports = nextConfig
