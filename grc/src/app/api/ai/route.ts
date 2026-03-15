@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+export const runtime = 'edge'
+
 /**
  * POST /api/ai
  * Accepts a user query, retrieves relevant ISO document chunks from Vectorize,
