@@ -16,7 +16,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        <header style={{ padding: '12px 24px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center' }}>
+          <a href="https://monti.app" style={{ display: 'flex', alignItems: 'center' }}>
+            <img src="/grctoisms-logo.png" alt="GRC to ISMS" style={{ height: '48px', width: 'auto' }} />
+          </a>
+        </header>
+        {children}
+      </body>
     </html>
   )
 }
