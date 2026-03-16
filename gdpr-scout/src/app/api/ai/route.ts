@@ -1,11 +1,12 @@
 /**
  * POST /api/ai
  * GDPR AI query endpoint — Vectorize + Perplexity
- * Bindings accessed via getRequestContext() inside handler only.
+ *
+ * Bindings in next-on-pages v1 + Next.js 15 edge runtime are accessible
+ * directly on process.env (both secrets and object bindings like AI/VECTORIZE).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getRequestContext } from '@cloudflare/next-on-pages'
 
 export const runtime = 'edge'
 
@@ -20,6 +21,16 @@ STRICT RULES:
 4. If the answer is not found in the provided context, respond exactly: "This information is not available in the provided GDPR documentation."
 5. Never speculate, infer, or expand beyond what the document excerpts explicitly state.`
 
+type CloudflareEnv = typeof process.env & {
+  AI?: { run: (model: string, input: { text: string }) => Promise<{ data: number[][] }> }
+  VECTORIZE?: {
+    query: (vec: number[], opts: { topK: number; returnMetadata: string }) => Promise<{
+      matches: Array<{ score: number; metadata?: Record<string, string> }>
+    }>
+  }
+  PERPLEXITY_API_KEY?: string
+}
+
 export async function GET() {
   return NextResponse.json({ status: 'ok', endpoint: 'GDPR AI query' })
 }
@@ -33,51 +44,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing required field: question' }, { status: 400 })
     }
 
-    // getRequestContext() must be called inside the handler, not at module level
-    const { env } = getRequestContext() as {
-      env: {
-        AI?: { run: (model: string, input: { text: string }) => Promise<{ data: number[][] }> }
-        VECTORIZE?: {
-          query: (vec: number[], opts: { topK: number; returnMetadata: string }) => Promise<{
-            matches: Array<{ score: number; metadata?: Record<string, string> }>
-          }>
-        }
-        PERPLEXITY_API_KEY?: string
-      }
-    }
-
+    const env = process.env as CloudflareEnv
     const apiKey = env.PERPLEXITY_API_KEY
+
     if (!apiKey) {
       return NextResponse.json({ error: 'PERPLEXITY_API_KEY is not configured.' }, { status: 503 })
     }
 
-    // 1. Vectorize search (if bindings available)
     type Chunk = { articleNumber: string; articleTitle: string; text: string; score: number }
     const chunks: Chunk[] = []
 
     if (env.AI && env.VECTORIZE) {
-      const embedding = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: question })
-      const queryVector = embedding.data[0]
-      const results = await env.VECTORIZE.query(queryVector, { topK: 5, returnMetadata: 'all' })
+      try {
+        const embedding = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: question })
+        const queryVector = embedding.data[0]
+        const results = await env.VECTORIZE.query(queryVector, { topK: 5, returnMetadata: 'all' })
 
-      for (const m of results.matches) {
-        if (m.metadata?.text) {
-          chunks.push({
-            articleNumber: m.metadata.articleNumber ?? 'Unknown',
-            articleTitle: m.metadata.articleTitle ?? '',
-            text: m.metadata.text,
-            score: m.score,
-          })
+        for (const m of results.matches) {
+          if (m.metadata?.text) {
+            chunks.push({
+              articleNumber: m.metadata.articleNumber ?? 'Unknown',
+              articleTitle: m.metadata.articleTitle ?? '',
+              text: m.metadata.text,
+              score: m.score,
+            })
+          }
         }
+      } catch (vecErr) {
+        console.error('[/api/ai] Vectorize error:', vecErr)
       }
     }
 
-    // 2. Build context
     const gdprContext = chunks.length > 0
-      ? chunks.map((c, i) => `[${i + 1}] ${c.articleNumber}${c.articleTitle ? ` — ${c.articleTitle}` : ''}\n${c.text}`).join('\n\n')
+      ? chunks.map((c, i) =>
+          `[${i + 1}] ${c.articleNumber}${c.articleTitle ? ` — ${c.articleTitle}` : ''}\n${c.text}`
+        ).join('\n\n')
       : 'No specific document context retrieved.'
 
-    // 3. Call Perplexity
     const perplexityRes = await fetch(PERPLEXITY_API_URL, {
       method: 'POST',
       headers: {
@@ -88,7 +91,10 @@ export async function POST(req: NextRequest) {
         model: 'llama-3.1-sonar-large-128k-online',
         messages: [
           { role: 'system', content: GDPR_SYSTEM_PROMPT },
-          { role: 'user', content: `GDPR DOCUMENT CONTEXT:\n\n${gdprContext}\n\n---\n\nQUESTION: ${question}` },
+          {
+            role: 'user',
+            content: `GDPR DOCUMENT CONTEXT:\n\n${gdprContext}\n\n---\n\nQUESTION: ${question}`,
+          },
         ],
         temperature: 0.1,
         max_tokens: 1024,
@@ -100,7 +106,9 @@ export async function POST(req: NextRequest) {
       throw new Error(`Perplexity error ${perplexityRes.status}: ${errText}`)
     }
 
-    const data = await perplexityRes.json() as { choices: Array<{ message: { content: string } }> }
+    const data = await perplexityRes.json() as {
+      choices: Array<{ message: { content: string } }>
+    }
 
     const sources = chunks.map((c) => ({
       articleNumber: c.articleNumber,
