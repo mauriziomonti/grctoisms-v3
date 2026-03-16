@@ -14,6 +14,10 @@ database_id = "6977a1a1-f44f-40ec-b5d5-886c7387c1e4"
 binding = "VECTORIZE"
 index_name = "gdpr-documents"
 
+# ── Cloudflare Workers AI (for query embeddings) ─────────────────────────────
+[ai]
+binding = "AI"
+
 # ── Environment variables (secrets set via Cloudflare dashboard) ─────────────
 # PERPLEXITY_API_KEY  — set in Cloudflare Pages > Settings > Environment Variables
 # AUTH_SECRET         — JWT signing secret
