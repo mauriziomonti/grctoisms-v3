@@ -1,21 +1,28 @@
 /**
  * POST /api/ai
- * The core GDPR AI query endpoint.
- *
- * Flow:
- * 1. Receive { question: string } in request body
- * 2. Embed the question via Workers AI (@cf/baai/bge-base-en-v1.5)
- * 3. Search Vectorize index "gdpr-documents" for top-5 relevant chunks
- * 4. Build a grounded prompt and call Perplexity
- * 5. Return { answer, sources } — never fabricated content
+ * GDPR AI query endpoint — Vectorize + Perplexity
+ * Bindings accessed via getRequestContext() inside handler only.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { searchGdprVectorize, formatGdprContext, GdprChunk } from '@/lib/ai/vectorize'
-import { queryGdprPerplexity, GdprSource } from '@/lib/ai/perplexity'
 
 export const runtime = 'edge'
+
+const PERPLEXITY_API_URL = 'https://api.perplexity.ai/chat/completions'
+
+const GDPR_SYSTEM_PROMPT = `You are a GDPR compliance assistant.
+
+STRICT RULES:
+1. Answer ONLY using the GDPR document excerpts provided in the context below.
+2. Do NOT use general knowledge or your training data under any circumstances.
+3. Cite the specific GDPR Article number in every response (e.g. "Article 5(1)(a)", "Article 13(1)(c)").
+4. If the answer is not found in the provided context, respond exactly: "This information is not available in the provided GDPR documentation."
+5. Never speculate, infer, or expand beyond what the document excerpts explicitly state.`
+
+export async function GET() {
+  return NextResponse.json({ status: 'ok', endpoint: 'GDPR AI query' })
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,78 +30,90 @@ export async function POST(req: NextRequest) {
     const question = body.question?.trim()
 
     if (!question) {
-      return NextResponse.json(
-        { error: 'Missing required field: question' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'Missing required field: question' }, { status: 400 })
     }
 
-    // Get Cloudflare bindings via next-on-pages context
-    const ctx = getRequestContext()
-    const env = ctx.env as {
-      AI: {
-        run: (model: string, input: { text: string }) => Promise<{ data: number[][] }>
+    // getRequestContext() must be called inside the handler, not at module level
+    const { env } = getRequestContext() as {
+      env: {
+        AI?: { run: (model: string, input: { text: string }) => Promise<{ data: number[][] }> }
+        VECTORIZE?: {
+          query: (vec: number[], opts: { topK: number; returnMetadata: string }) => Promise<{
+            matches: Array<{ score: number; metadata?: Record<string, string> }>
+          }>
+        }
+        PERPLEXITY_API_KEY?: string
       }
-      VECTORIZE: {
-        query: (
-          vector: number[],
-          options: { topK: number; returnMetadata: 'all' | boolean }
-        ) => Promise<{ matches: Array<{ id: string; score: number; metadata?: Record<string, string | number> }> }>
-      }
-      PERPLEXITY_API_KEY: string
-    }
-
-    if (!env.AI || !env.VECTORIZE) {
-      return NextResponse.json(
-        { error: 'Required Cloudflare bindings (AI, VECTORIZE) are not configured.' },
-        { status: 503 }
-      )
     }
 
     const apiKey = env.PERPLEXITY_API_KEY
     if (!apiKey) {
-      return NextResponse.json(
-        { error: 'PERPLEXITY_API_KEY environment variable is not set.' },
-        { status: 503 }
-      )
+      return NextResponse.json({ error: 'PERPLEXITY_API_KEY is not configured.' }, { status: 503 })
     }
 
-    // 1. Search Vectorize for the most relevant GDPR chunks
-    const chunks: GdprChunk[] = await searchGdprVectorize(question, env, 5)
+    // 1. Vectorize search (if bindings available)
+    type Chunk = { articleNumber: string; articleTitle: string; text: string; score: number }
+    const chunks: Chunk[] = []
 
-    if (chunks.length === 0) {
-      return NextResponse.json({
-        answer: 'No relevant GDPR documentation was found for your question. Please try rephrasing.',
-        sources: [],
-      })
+    if (env.AI && env.VECTORIZE) {
+      const embedding = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: question })
+      const queryVector = embedding.data[0]
+      const results = await env.VECTORIZE.query(queryVector, { topK: 5, returnMetadata: 'all' })
+
+      for (const m of results.matches) {
+        if (m.metadata?.text) {
+          chunks.push({
+            articleNumber: m.metadata.articleNumber ?? 'Unknown',
+            articleTitle: m.metadata.articleTitle ?? '',
+            text: m.metadata.text,
+            score: m.score,
+          })
+        }
+      }
     }
 
-    // 2. Format chunks into grounded context
-    const gdprContext = formatGdprContext(chunks)
+    // 2. Build context
+    const gdprContext = chunks.length > 0
+      ? chunks.map((c, i) => `[${i + 1}] ${c.articleNumber}${c.articleTitle ? ` — ${c.articleTitle}` : ''}\n${c.text}`).join('\n\n')
+      : 'No specific document context retrieved.'
 
-    // 3. Map to source objects for the response
-    const sources: GdprSource[] = chunks.map((c) => ({
+    // 3. Call Perplexity
+    const perplexityRes = await fetch(PERPLEXITY_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-sonar-large-128k-online',
+        messages: [
+          { role: 'system', content: GDPR_SYSTEM_PROMPT },
+          { role: 'user', content: `GDPR DOCUMENT CONTEXT:\n\n${gdprContext}\n\n---\n\nQUESTION: ${question}` },
+        ],
+        temperature: 0.1,
+        max_tokens: 1024,
+      }),
+    })
+
+    if (!perplexityRes.ok) {
+      const errText = await perplexityRes.text()
+      throw new Error(`Perplexity error ${perplexityRes.status}: ${errText}`)
+    }
+
+    const data = await perplexityRes.json() as { choices: Array<{ message: { content: string } }> }
+
+    const sources = chunks.map((c) => ({
       articleNumber: c.articleNumber,
       articleTitle: c.articleTitle,
       excerpt: c.text.slice(0, 300) + (c.text.length > 300 ? '…' : ''),
       score: Math.round(c.score * 1000) / 1000,
     }))
 
-    // 4. Call Perplexity with grounded context
-    const result = await queryGdprPerplexity(question, gdprContext, sources, apiKey)
+    return NextResponse.json({ answer: data.choices[0].message.content, sources })
 
-    return NextResponse.json(result, { status: 200 })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     console.error('[/api/ai] Error:', message)
     return NextResponse.json({ error: message }, { status: 500 })
   }
-}
-
-export async function GET() {
-  return NextResponse.json({
-    status: 'ok',
-    endpoint: 'GDPR AI query',
-    description: 'POST { question } to query GDPR documentation via Vectorize + Perplexity',
-  })
 }
