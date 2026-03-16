@@ -1,7 +1,6 @@
 /**
  * Cloudflare Pages Function — /api/ai
- * Runs natively on the Cloudflare edge, no Next.js wrapper.
- * Bindings (AI, VECTORIZE, PERPLEXITY_API_KEY) injected directly by Cloudflare.
+ * Native edge function, no Next.js wrapper, no async_hooks dependency.
  */
 
 const PERPLEXITY_API_URL = 'https://api.perplexity.ai/chat/completions'
@@ -40,7 +39,6 @@ export async function onRequestPost({ request, env }) {
         const embedding = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: question })
         const queryVector = embedding.data[0]
         const results = await env.VECTORIZE.query(queryVector, { topK: 5, returnMetadata: 'all' })
-
         for (const m of results.matches) {
           if (m.metadata?.text) {
             chunks.push({
@@ -64,7 +62,7 @@ export async function onRequestPost({ request, env }) {
       : 'No specific document context retrieved.'
 
     // 3. Call Perplexity
-    const perplexityRes = await fetch(PERPLEXITY_API_URL, {
+    const res = await fetch(PERPLEXITY_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -74,24 +72,19 @@ export async function onRequestPost({ request, env }) {
         model: 'llama-3.1-sonar-large-128k-online',
         messages: [
           { role: 'system', content: GDPR_SYSTEM_PROMPT },
-          {
-            role: 'user',
-            content: `GDPR DOCUMENT CONTEXT:\n\n${gdprContext}\n\n---\n\nQUESTION: ${question}`,
-          },
+          { role: 'user', content: `GDPR DOCUMENT CONTEXT:\n\n${gdprContext}\n\n---\n\nQUESTION: ${question}` },
         ],
         temperature: 0.1,
         max_tokens: 1024,
       }),
     })
 
-    if (!perplexityRes.ok) {
-      const errText = await perplexityRes.text()
-      throw new Error(`Perplexity error ${perplexityRes.status}: ${errText}`)
+    if (!res.ok) {
+      const errText = await res.text()
+      throw new Error(`Perplexity error ${res.status}: ${errText}`)
     }
 
-    const data = await perplexityRes.json()
-    const answer = data.choices[0].message.content
-
+    const data = await res.json()
     const sources = chunks.map((c) => ({
       articleNumber: c.articleNumber,
       articleTitle: c.articleTitle,
@@ -99,11 +92,11 @@ export async function onRequestPost({ request, env }) {
       score: Math.round(c.score * 1000) / 1000,
     }))
 
-    return Response.json({ answer, sources })
+    return Response.json({ answer: data.choices[0].message.content, sources })
 
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error('[/api/ai] Error:', message)
+    console.error('[/api/ai]', message)
     return Response.json({ error: message }, { status: 500 })
   }
 }
