@@ -8,32 +8,14 @@
  * 3. Search Vectorize index "gdpr-documents" for top-5 relevant chunks
  * 4. Build a grounded prompt and call Perplexity
  * 5. Return { answer, sources } — never fabricated content
- *
- * Bindings required (set in Cloudflare Pages dashboard + wrangler.toml):
- *   AI          — Workers AI
- *   VECTORIZE   — Vectorize index "gdpr-documents"
- *   PERPLEXITY_API_KEY — environment variable (secret)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext } from '@cloudflare/next-on-pages'
 import { searchGdprVectorize, formatGdprContext, GdprChunk } from '@/lib/ai/vectorize'
 import { queryGdprPerplexity, GdprSource } from '@/lib/ai/perplexity'
 
 export const runtime = 'edge'
-
-// Cloudflare edge env type
-interface CloudflareEnv {
-  AI: {
-    run: (model: string, input: { text: string }) => Promise<{ data: number[][] }>
-  }
-  VECTORIZE: {
-    query: (
-      vector: number[],
-      options: { topK: number; returnMetadata: 'all' | boolean }
-    ) => Promise<{ matches: Array<{ id: string; score: number; metadata?: Record<string, string | number> }> }>
-  }
-  PERPLEXITY_API_KEY: string
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -47,11 +29,21 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Cloudflare injects bindings via the request context
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const env = process.env as unknown as CloudflareEnv
+    // Get Cloudflare bindings via next-on-pages context
+    const ctx = getRequestContext()
+    const env = ctx.env as {
+      AI: {
+        run: (model: string, input: { text: string }) => Promise<{ data: number[][] }>
+      }
+      VECTORIZE: {
+        query: (
+          vector: number[],
+          options: { topK: number; returnMetadata: 'all' | boolean }
+        ) => Promise<{ matches: Array<{ id: string; score: number; metadata?: Record<string, string | number> }> }>
+      }
+      PERPLEXITY_API_KEY: string
+    }
 
-    // Guard: check required bindings exist
     if (!env.AI || !env.VECTORIZE) {
       return NextResponse.json(
         { error: 'Required Cloudflare bindings (AI, VECTORIZE) are not configured.' },
@@ -72,8 +64,7 @@ export async function POST(req: NextRequest) {
 
     if (chunks.length === 0) {
       return NextResponse.json({
-        answer:
-          'No relevant GDPR documentation was found for your question. Please try rephrasing.',
+        answer: 'No relevant GDPR documentation was found for your question. Please try rephrasing.',
         sources: [],
       })
     }
@@ -100,9 +91,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/**
- * GET /api/ai — health check
- */
 export async function GET() {
   return NextResponse.json({
     status: 'ok',
