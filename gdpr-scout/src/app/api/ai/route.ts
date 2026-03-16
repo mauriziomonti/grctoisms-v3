@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Cloudflare injects bindings via the request context
-    // @ts-expect-error — Cloudflare Pages edge env
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const env = process.env as unknown as CloudflareEnv
 
     // Guard: check required bindings exist
