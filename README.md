@@ -2,7 +2,7 @@
 
 AI-powered Governance, Risk & Compliance platform built on ISO 27001, ISO 42001, and GDPR.
 
-**Live:** [monti.app](https://monti.app)
+**Live:** [grctoisms.com](https://grctoisms.com)
 
 ---
 
