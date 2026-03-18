@@ -1,8 +1,6 @@
-# monti.app — GRC Platform
-
 AI-powered Governance, Risk & Compliance platform built on ISO 27001, ISO 42001, and GDPR.
 
-**Live:** [grctoisms.com](https://grctoisms.com)
+**Live:** [grctoisms.com](https://grctoisms.org)
 
 ---
 
