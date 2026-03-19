@@ -10,11 +10,15 @@
   font-size: 1.1rem;
   display: flex;
   align-items: center;
+  background: none;
 }
 
 .logo img {
   height: 80px;
   width: auto;
+  background: transparent !important;  /* Kills white box */
+  display: block;
+  image-rendering: -webkit-optimize-contrast;  /* Crisp */
 }
 
 body {
