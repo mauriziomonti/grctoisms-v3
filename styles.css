@@ -16,9 +16,7 @@
 .logo img {
   height: 80px;
   width: auto;
-  background: transparent !important;  /* Kills white box */
-  display: block;
-  image-rendering: -webkit-optimize-contrast;  /* Crisp */
+  background: none !important; image-rendering: crisp-edges;
 }
 
 body {
