@@ -10,13 +10,14 @@
   font-size: 1.1rem;
   display: flex;
   align-items: center;
-  background: none;
+  background: transparent;
 }
 
 .logo img {
-  height: 80px;
+  background: transparent !important;
+  height: 100px;
   width: auto;
-  background: none !important; image-rendering: crisp-edges;
+  background: transparent !important; image-rendering: crisp-edges;
 }
 
 body {
